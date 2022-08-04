@@ -100,9 +100,14 @@ void _signal_emit(const GValue *inst_and_params, guint id, GQuark detail,
 import "C"
 
 import (
+	"fmt"
 	"reflect"
 	"unsafe"
-	"fmt"
+)
+
+const (
+	GTypeFundamentalShift = 2
+	GTypeString           = 16
 )
 
 type ObjectCaster interface {
@@ -162,9 +167,20 @@ func (o *Object) SetProperty(name string, val interface{}) {
 		ValueOf(val).g())
 }
 
+func (e *Object) GetPropertyOfType(name string, t Type) interface{} {
+	s := C.CString(name)
+	defer C.free(unsafe.Pointer(s))
+
+	v := NewValue(t)
+	C.g_object_get_property(e.g(), (*C.gchar)(s), v.g())
+
+	return v.Get()
+}
+
 func (o *Object) GetProperty(name string) interface{} {
 	s := C.CString(name)
 	defer C.free(unsafe.Pointer(s))
+
 	v := new(Value)
 	C.g_object_get_property(o.g(), (*C.gchar)(s), v.g())
 	return v.Get()
@@ -244,6 +260,9 @@ func (o *Object) connect(noi bool, sid SignalId, detail Quark, cb_func,
 	if n_params > 0 {
 		pt := (*[1 << 16]Type)(unsafe.Pointer(sq.param_types))[:int(sq.n_params)]
 		for i := 0; i < n_params; i++ {
+			if pt[i].String() == "GstBuffer" {
+				continue
+			}
 			if !pt[i].Match(ft.In(i + poffset)) {
 				panic(fmt.Sprintf(
 					"Callback #%d param. type %s doesn't match signal spec %s",
@@ -368,7 +387,7 @@ func objectMarshal(mp *C.MarshalParams) {
 	n_param := int(mp.n_param)
 	first_param := 0
 	if gc.no_inst != 0 {
-		// Callback without instance on which signal was emited as first param 
+		// Callback without instance on which signal was emited as first param
 		first_param++
 	}
 	prms := (*[1 << 16]Value)(unsafe.Pointer(mp.params))[:n_param]
